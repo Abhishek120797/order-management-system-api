@@ -1,54 +1,64 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import http from "http";
 import { app } from "./app.js";
+import { connectDB, sequelize } from "./config/database.js";
 
-const PORT = process.env.PORT || 8000;
+const port = process.env.PORT || 3000;
 
-const server = app.listen(PORT, () => {
-    console.log(`Server started at port number : ${PORT}`);
-});
+const server = http.createServer(app);
 
-server.on("error", (error) => {
-    console.error("Server error : ", error);
-    process.exit(1);
-});
+const startServer = async () => {
+    try {
+        await connectDB();
+        console.log("Database connected successfully.");
+        server.listen(port, () => {
+            console.log(
+                ` Server running in ${process.env.NODE_ENV} mode on port ${port}`
+            );
+        });
+    } catch (error) {
+        console.error("Failed to start server:", error);
+        process.exit(1);
+    }
+};
 
-//Gracefull shutdown system
+startServer();
 
-const shutdown = async (signal) => {
-    console.log(`\n ${signal} received. Closing server...`);
-
-    server.close(async (err) => {
+const shutDown = async (signal) => {
+    console.log(`\n${signal} received, shutting down gracefully...`);
+    try {
+        await sequelize.close();
+        console.log("Database connection closed.");
+    } catch (dbError) {
+        console.error("Failed to close database connection:", dbError);
+    }
+    server.close((err) => {
         if (err) {
-            console.error("Error while closing server: ", err);
+            console.error("Failed to close server:", err);
             process.exit(1);
         }
-
-        try {
-            console.log("database connection closed.");
-            console.log("server shutdown complete.");
-            process.exit(0);
-        } catch (dbError) {
-            console.error("Error during shutdown :", dbError);
-            process.exit(1);
-        }
+        console.log("Server closed.");
+        process.exit(0);
     });
 };
 
-//Handle termination signal
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutDown("SIGINT"));
 
-// Catch Unhandled promise rejections
-process.on("unhandledRejection", (reason) => {
-    console.error("Unhandled Rejection: ", reason);
-    shutdown("unhandledRejection");
+process.on("SIGTERM", () => shutDown("SIGTERM"));
+
+process.on("uncaughtException", (err) => {
+    console.error(err);
+    shutDown("uncaughtException");
 });
 
-// Catch uncaught exceptions
+process.on("unhandledRejection", (err) => {
+    console.error(err);
+    shutDown("unhandledRejection");
+});
 
-process.on("uncaughtException", (error) => {
-    console.error("Uncaught exception:", error);
-    shutdown("uncaughtException");
+server.on("error", (err) => {
+    console.error("server error:", err);
+    process.exit(1);
 });

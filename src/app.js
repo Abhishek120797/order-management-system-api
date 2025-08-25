@@ -1,26 +1,29 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import morgan from "morgan";
 import helmet from "helmet";
+import compression from "compression";
 import { ApiError } from "./utils/ApiError.js";
 import { ApiResponse } from "./utils/ApiResponse.js";
 
 const app = express();
 
-// trust proxy (needed for reverse proxies like Nginx)
+const inDev = process.env.NODE_ENV === "development";
+
 app.set("trust proxy", 1);
 
-// Helmet (security headers)
+//middlewares
 app.use(
     helmet({
-        contentSecurityPolicy:
-            process.env.NODE_ENV === "production" ? undefined : false,
+        contentSecurityPolicy: inDev ? false : undefined,
     })
 );
 
-// CORS
 app.use(
     cors({
         origin: process.env.CORS_ORIGIN,
@@ -28,34 +31,29 @@ app.use(
     })
 );
 
-// Body parsers
-app.use(express.json());
+if (inDev) {
+    app.use(morgan("dev"));
+}
 
-app.use(express.urlencoded({ extended: true }));
-
-// Static files
-app.use(express.static("public"));
-
-// Cookie parser
-app.use(cookieParser());
-
-// Rate limiter (apply only on API routes in prod)
 const limiter = rateLimit({
     windowMs: 10 * 60 * 1000,
     max: 100,
     message: "Too many requests from this IP, please try again later.",
 });
 
-const isDev = process.env.NODE_ENV === "development";
-
-if (!isDev) {
+if (!inDev) {
     app.use("/api", limiter);
 }
 
-// Logging (only in development)
-if (isDev) {
-    app.use(morgan("dev"));
-}
+app.use(express.json());
+
+app.use(express.urlencoded({ extended: true }));
+
+app.use(cookieParser());
+
+app.use(express.static("public"));
+
+app.use(compression());
 
 // Routes
 app.get("/api/v1/ping", (req, res) => {
@@ -66,42 +64,39 @@ app.get("/api/v1/ping", (req, res) => {
 
 // 404 handler
 app.use((req, res, next) => {
-    next(new ApiError(404));
+    next(new ApiError(404, "Resource not found"));
 });
 
 // Centralized Error Handling Middleware
 app.use((err, req, res, next) => {
-    // If it's not an ApiError, wrap it into one
     if (!(err instanceof ApiError)) {
         err = new ApiError(
             err.statusCode || 500,
             err.message || "Internal Server Error",
-            err.errors || [],
+            err.errors,
             err.stack
         );
-        err.isOperational = false; // unexpected error
+        err.isOperational = false;
     }
-    const { statusCode, isOperational, errors } = err;
 
-    // Log the error differently depending on type
+    const { statusCode, isOperational, errors, message, stack } = err;
+
     if (isOperational) {
-        console.error("[Operational Error]", err.message);
+        console.error("[Operational Error]", message);
     } else {
         console.error("[Programming/Error Bug] ", err);
     }
 
-    // Show stack trace only in development
-    if (isDev) {
-        console.error(err.stack);
+    if (inDev && stack) {
+        console.error(stack);
     }
 
-    // Decide what message to send to client
     const clientMessage =
-        !isDev && !isOperational ? "Internal Server Error" : err.message;
+        !inDev && !isOperational ? "Internal Server Error" : message;
 
     return res
         .status(statusCode)
-        .json(new ApiResponse(statusCode, null, clientMessage, errors || []));
+        .json(new ApiResponse(statusCode, null, clientMessage, errors));
 });
 
 export { app };
