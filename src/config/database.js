@@ -1,35 +1,50 @@
-import dotenv from "dotenv";
-dotenv.config();
-
-import { Sequelize } from "sequelize";
-import { db_name } from "../constants.js";
-
-const sequelize = new Sequelize(
-    db_name,
-    process.env.DB_USER,
-    process.env.DB_PASS,
-    {
-        host: process.env.DB_HOST,
-        port: process.env.DB_PORT,
-        dialect: "postgres",
-        logging: false,
-        dialectOptions: {
-            ssl: {
-                require: true,
-                rejectUnauthorized: false,
-            },
-        },
-    }
-);
+import sequelizeInstance from "./sequelizeInstance.js";
+import User from "../models/User.model.js";
+import associateModels from "../models/associations.js";
 
 const connectDB = async () => {
     try {
-        await sequelize.authenticate();
+        await sequelizeInstance.authenticate();
         console.log("Connection has been established successfully.");
+
+        associateModels();
+        console.log("Association done");
+
+        await sequelizeInstance.sync({ alter: true });
+        console.log("All model syncronized");
+
+        await init();
     } catch (error) {
         console.error("Unable to connect to the database:", error);
         process.exit(1);
     }
 };
 
-export { connectDB, sequelize };
+async function init() {
+    try {
+        let admin = await User.findOne({ where: { role: "ADMIN" } });
+        if (admin) {
+            console.log("admin is already present");
+            return;
+        }
+    } catch (error) {
+        console.log("Error while finding the admin data : ", error);
+    }
+
+    try {
+        const admin = await User.create({
+            firstName: "Vicky",
+            lastName: "Jaiswal",
+            email: process.env.ADMIN_EMAIL,
+            contact: process.env.ADMIN_CONTACT,
+            password: process.env.ADMIN_PASSWORD,
+            role: "ADMIN",
+            isVerified: true,
+        });
+        console.log("admin created ", admin);
+    } catch (error) {
+        console.log("Error while creating admin : ", error);
+    }
+}
+
+export default connectDB;

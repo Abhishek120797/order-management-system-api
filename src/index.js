@@ -3,7 +3,8 @@ dotenv.config();
 
 import http from "http";
 import { app } from "./app.js";
-import { connectDB, sequelize } from "./config/database.js";
+import sequelizeInstance from "./config/sequelizeInstance.js";
+import connectDB from "./config/database.js";
 
 const port = process.env.PORT || 3000;
 
@@ -29,11 +30,12 @@ startServer();
 const shutDown = async (signal) => {
     console.log(`\n${signal} received, shutting down gracefully...`);
     try {
-        await sequelize.close();
+        await sequelizeInstance.close();
         console.log("Database connection closed.");
     } catch (dbError) {
         console.error("Failed to close database connection:", dbError);
     }
+
     server.close((err) => {
         if (err) {
             console.error("Failed to close server:", err);
